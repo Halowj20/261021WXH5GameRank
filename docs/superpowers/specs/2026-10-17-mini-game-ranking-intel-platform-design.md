@@ -1,8 +1,20 @@
 # 微小 / 抖小游戏榜单情报平台 · 设计文档
 
+- 文档定位：产品定义 + PRD
+- 文档版本：V1.2（工程启动）
+- 基线版本：V1.0
 - 日期：2026-10-17
-- 状态：已定稿（待实施）
+- 状态：已定稿（产品设计基线）
 - 使用者：平台运营团队（5-10 人）
+- 原型基线：`prototype-v0.1`（2026-10-17 冻结）
+
+### 修订记录
+
+| 版本 | 日期 | 说明 |
+|---|---|---|
+| V1.0 | 2026-10-17 | 初版：五层数据模型、品类体系、榜单来源规则、日报与 MVP 范围 |
+| V1.1 | 2026-10-17 | 根据最终可交互原型 V0.1 回写：补齐 Conflict 状态与结论字段、明确日报定稿锁定与发布延期、收敛游戏档案 P0 范围、记录原型基线 |
+| V1.2 | 2026-10-17 | 工程计划确认技术栈：Vue 3 + Django + MariaDB；前端使用 Element Plus，后端使用 Session 鉴权与进程内任务 |
 
 ## 1. 背景与问题
 
@@ -97,11 +109,16 @@
 
 **Claim（观点）**：`id, article_id, subject_type(game|category|market), subject_id, claim_text, stance(positive|negative|neutral), confidence, quote, quote_start, quote_end, extracted_by(ai|human), verify_status(pending|confirmed|disputed), created_at`
 
-**Conflict（分歧）**：`id, subject_type, subject_id, window_start, window_end, claim_ids, conflict_type(judgement|ranking), status(open|resolved)`
+**Conflict（分歧）**：`id, subject_type, subject_id, window_start, window_end, claim_ids, conflict_type(judgement|ranking), status(open|resolved|kept), source_id, article_id, official_rank, citation_rank, resolution_note, resolved_by, resolved_at`
+
+- `judgement` 类型使用 `claim_ids` 与时间窗；`ranking` 类型使用 `source_id / article_id / official_rank / citation_rank`，`claim_ids` 可为空。
+- `status`：`open` 待处理；`resolved` 已核实；`kept` 保留分歧（已记录结论，但不选边）。
 
 ### 5.5 产物层
 
 **Digest（日报）**：`id, digest_date, status(draft|reviewed|published), generated_at, editor_id, version`
+
+> 注：MVP 实际使用 `draft | reviewed`；`published` 作为后续版本预留，本期不提供发布操作。
 
 **DigestItem**：`id, digest_id, section, order, ref_type(snapshot|claim|conflict), ref_id, text_override, editor_note`
 
@@ -165,6 +182,7 @@ AI 抽取输出结构化 JSON，包含：
 3. 当天仅有转述时，快照可生成，但状态为 `provisional`，日报中标注「未经官方核对」。
 4. 每个 Entry 保留 `evidence_observation_ids`，可点回原文或截图。
 5. 统计口径以基准快照为准，重复转述不重复计数。
+6. 人工可在差异抽屉选择「标记已核实」或「保留分歧」，并填写结论备注；两种操作都会关闭差异，但保留分歧不等于选边。
 
 ## 8. 品类体系
 
@@ -232,9 +250,11 @@ AI 抽取输出结构化 JSON，包含：
 
 ### 11.3 定稿
 
-- 支持逐条勾选、删除、改写、调整顺序。
+- 支持逐条勾选、删除、改写、调整顺序；以上编辑仅在草稿状态可用。
 - `text_override` 与 `editor_note` 与自动生成内容分离保存。
-- 状态流转：草稿 → 已定稿 → 已发布。
+- 状态流转：草稿 → 已定稿（MVP）。`published / 已发布` 为后续版本预留，本期不提供发布操作。
+- 定稿后内容锁定，不提供编辑或重新生成；仅可导出 Markdown。
+- 定稿后的撤销、重开或版本化路径尚未确认，见 §17。
 - 导出格式：Markdown（一期），飞书文档（二期）。
 
 ## 12. 页面模块
@@ -244,20 +264,20 @@ AI 抽取输出结构化 JSON，包含：
 | 今日工作台 | 每日第一屏 | 待核队列、今日异动、日报进度 |
 | 投喂台 | 三通道输入 | 解析预览后再入库，支持批量 |
 | 榜单中心 | 按平台 + 榜种 + 日期查看 | 官方与转述并列，差异标红 |
-| 游戏库 | 游戏档案 | 七维信息、排名曲线、关联关系 |
+| 游戏库 | 游戏档案 | P0：基础身份、品类身份、榜单履历（表格）、观点档案、素材溯源、数据质量；排名曲线、关联关系为 P1 |
 | 日报编辑器 | 初稿到定稿 | 逐条勾选改写、来源可见、一键导出 |
 | 设置 | 基础配置 | 公众号、品类树、标签、模型、成员 |
 
 ## 13. 技术选型
 
-- 前端：React + TypeScript + Vite + Ant Design
-- 后端：Python FastAPI + SQLAlchemy
-- 数据库：SQLite（本机起步），预留 PostgreSQL 迁移
-- 任务：进程内任务队列 + 重试，不引入 Redis
-- 文件：本地目录按日期分桶
-- OCR：驱动可切换（PaddleOCR 本地 / 云 OCR）
+- 前端：Vue 3 + TypeScript + Vite + Element Plus
+- 后端：Python 3.12 + Django 5.2（原生 JSON 视图 + Session 鉴权）
+- 数据库：MariaDB 10.6+（Django ORM + migrations）
+- 任务：进程内线程池 + 状态回写 + 手动重试，不引入 Redis/Celery
+- 文件：本地 `media/` 按日期分桶
+- OCR：RapidOCR 本地适配器，可替换
 - 模型：OpenAI 兼容接口，`base_url`、`api_key`、`model` 可配置
-- 部署：本机单进程跑通，后续可容器化部署到内网服务器
+- 部署：本机前后端分离运行；后续可用 Django 托管前端构建产物
 
 ## 14. 异常处理
 
@@ -274,7 +294,7 @@ AI 抽取输出结构化 JSON，包含：
 
 **P0（第一版）**：三通道投喂、抽取与归并、游戏与别名、三级品类、榜单来源类型、待核区、游戏档案基础版、日报生成与导出、简单登录。
 
-**P1**：排名趋势图、品类结构看板、信源权重、分歧提示、日报历史对比、关联关系推荐。
+**P1**：排名趋势图、品类结构看板、信源权重、分歧汇总与主动提示（P0 已包含榜单差异标红与结论记录）、日报历史对比、关联关系推荐。
 
 **P2**：定时自动抓取、飞书文档同步、周报/月报。
 
@@ -295,3 +315,16 @@ AI 抽取输出结构化 JSON，包含：
 | 模型成本 | 20+ 篇/天的抽取成本需在设置页给出用量统计 |
 | 品类树初期覆盖 | 冷启动阶段可能大量落入"未分类"，需要一次集中梳理 |
 | 团队权限 | 一期只做简单登录与角色，细粒度权限放二期 |
+| 解析预览的编辑粒度 | 页面结构规划提出正文 / 榜单候选与入库前修正，原型仅支持确认 / 取消；是否纳入正式需求待确认 |
+| 日报定稿后的纠错路径 | 原型定稿后锁定且无撤销 / 重开；是否允许撤销定稿、版本化或新建日报待确认 |
+
+## 18. 产品设计基线
+
+| 资产 | 版本 | 位置 | 状态 |
+|---|---|---|---|
+| 产品定义 / PRD | V1.1 | `docs/superpowers/specs/2026-10-17-mini-game-ranking-intel-platform-design.md` | 已定稿 |
+| 页面结构规划 | V1.1 | `docs/页面结构规划-V1.0.md`（文件名沿用 V1.0） | 已定稿 |
+| 可交互原型 | V0.1 | `prototype-v0.1/` | 已冻结 |
+| 冻结日期 | — | 2026-10-17 | — |
+
+说明：后续需求变更需在本文档新增修订记录；已冻结原型不随规格回写再次修改。
