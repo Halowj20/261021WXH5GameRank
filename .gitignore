@@ -1,0 +1,16 @@
+# Python / Django
+.venv/
+__pycache__/
+*.pyc
+backend/.env
+backend/media/
+backend/data/
+backend/staticfiles/
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+
+# Local tooling
+.trae-html-share-packages/
+.DS_Store

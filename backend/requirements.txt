@@ -1,0 +1,9 @@
+Django==5.2.7
+PyMySQL==1.1.1
+python-dotenv==1.0.1
+requests==2.32.3
+trafilatura==2.0.0
+rapidocr-onnxruntime==1.4.4
+numpy==1.26.4
+opencv-python==4.10.0.84
+onnxruntime==1.19.2
