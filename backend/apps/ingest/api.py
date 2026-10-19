@@ -113,12 +113,16 @@ def ingest_screenshot(request):
     if not uploaded:
         return fail("missing_file", "请上传截图", 400)
     source = Source.objects.filter(id=request.POST.get("source_id")).first() if request.POST.get("source_id") else None
-    article = Article.objects.create(
-        title=(request.POST.get("title") or "截图投喂").strip(),
-        source=source,
-        ingest_method=Article.Method.SCREENSHOT,
-    )
-    asset = Asset.objects.create(article=article, type=Asset.Type.SCREENSHOT, file=uploaded)
+    try:
+        with transaction.atomic():
+            article = Article.objects.create(
+                title=(request.POST.get("title") or "截图投喂").strip(),
+                source=source,
+                ingest_method=Article.Method.SCREENSHOT,
+            )
+            asset = Asset.objects.create(article=article, type=Asset.Type.SCREENSHOT, file=uploaded)
+    except OSError as exc:
+        return fail("storage_error", f"截图保存失败：{exc}", 500)
     ocr = ocr_image(asset.file.path)
     asset.ocr_text = ocr.text
     asset.ocr_confidence = ocr.confidence
@@ -170,7 +174,14 @@ def confirm(request):
 def cancel(request):
     payload = json.loads(request.body or "{}")
     ids = [int(value) for value in payload.get("ids", [])]
-    deleted, _ = Article.objects.filter(id__in=ids, is_draft=True).delete()
+    articles = Article.objects.filter(id__in=ids, is_draft=True)
+    for asset in Asset.objects.filter(article__in=articles):
+        if asset.file:
+            try:
+                asset.file.delete(save=False)
+            except OSError:
+                pass
+    deleted, _ = articles.delete()
     return ok({"deleted": deleted})
 
 
