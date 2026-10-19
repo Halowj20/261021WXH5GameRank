@@ -66,6 +66,23 @@ class DigestTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("已定稿", response.content.decode("utf-8"))
 
+    def test_item_source_traces_claim_and_snapshot(self):
+        digest = generate_digest(self.today, self.user)
+
+        claim_item = digest.items.filter(section="claims").first()
+        response = self.client.get(f"/api/digest-items/{claim_item.id}/source")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["ref_type"], "claim")
+        self.assertEqual(payload["articles"][0]["id"], self.article.id)
+
+        snapshot_item = digest.items.filter(section="wechat").first()
+        response = self.client.get(f"/api/digest-items/{snapshot_item.id}/source")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["ref_type"], "snapshot")
+        self.assertIn("微信小游戏", payload["title"])
+
     def test_regenerate_after_review_returns_409(self):
         digest = generate_digest(self.today, self.user)
         digest.status = Digest.Status.REVIEWED

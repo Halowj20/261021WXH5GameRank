@@ -10,4 +10,5 @@ urlpatterns = [
     path("digests/<str:date>/export", api.export_markdown),
     path("digest-items/<int:item_id>", api.update_item),
     path("digest-items/<int:item_id>/delete", api.delete_item),
+    path("digest-items/<int:item_id>/source", api.item_source),
 ]

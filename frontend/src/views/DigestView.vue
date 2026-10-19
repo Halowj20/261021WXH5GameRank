@@ -33,8 +33,9 @@
             <div style="flex:1">
               <div style="line-height:1.7">{{ item.text }}</div>
               <div class="muted" style="font-size:12px;margin-top:4px">
-                引用：{{ item.ref_type }} #{{ item.ref_id }}
-                <span v-if="item.text_override" class="pill" style="margin-left:6px">人工改写</span>
+                <el-button link size="small" style="font-size:12px" @click="openSource(item)">来源</el-button>
+                <span class="muted" style="margin:0 6px">引用：{{ item.ref_type }} #{{ item.ref_id }}</span>
+                <span v-if="item.text_override" class="pill">人工改写</span>
               </div>
             </div>
             <div v-if="canWrite && digest.status === 'draft'" class="actions">
@@ -47,6 +48,31 @@
         </div>
       </section>
     </template>
+
+    <el-drawer v-model="sourceVisible" title="来源回溯" size="440px">
+      <el-skeleton v-if="sourceLoading" :rows="3" animated />
+      <template v-else-if="sourceData">
+        <div class="panel" style="margin-bottom:10px">
+          <strong>{{ sourceData.title || refLabel(sourceData.ref_type) }}</strong>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <span v-for="meta in sourceData.meta" :key="meta" class="pill">{{ meta }}</span>
+          </div>
+        </div>
+        <template v-if="sourceData.articles.length">
+          <h3 class="section-title">关联文章</h3>
+          <div v-for="article in sourceData.articles" :key="article.id" class="panel" style="margin-bottom:8px;padding:12px">
+            <strong>{{ article.title }}</strong>
+            <div class="muted" style="font-size:12px;margin:4px 0">{{ article.source || '未指定来源' }}</div>
+            <div class="actions">
+              <el-button link type="primary" @click="openArticle(article.id)">文章详情</el-button>
+              <el-link v-if="article.url" type="primary" :href="article.url" target="_blank" rel="noopener">原文</el-link>
+            </div>
+          </div>
+        </template>
+        <el-empty v-else description="该条目直接来自官方榜单快照，无关联文章" />
+        <el-button v-if="sourceData.hint" type="primary" plain style="margin-top:12px" @click="goReview">前往待核队列</el-button>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -159,6 +185,50 @@ async function exportMarkdown() {
 }
 function formatTime(value: string) {
   return dayjs(value).format('MM-DD HH:mm')
+}
+
+interface SourceArticle {
+  id: number
+  title: string
+  source: string
+  url: string
+  ingest_method: string
+}
+interface SourceDetail {
+  ref_type: string
+  ref_id: string
+  title: string
+  meta: string[]
+  articles: SourceArticle[]
+  hint: string
+}
+
+const sourceVisible = ref(false)
+const sourceLoading = ref(false)
+const sourceData = ref<SourceDetail | null>(null)
+
+async function openSource(item: DigestItem) {
+  sourceVisible.value = true
+  sourceLoading.value = true
+  sourceData.value = null
+  try {
+    sourceData.value = await api<SourceDetail>(`/api/digest-items/${item.id}/source`)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '来源加载失败')
+  } finally {
+    sourceLoading.value = false
+  }
+}
+function refLabel(type: string) {
+  return ({ snapshot: '榜单快照', claim: '观点来源', conflict: '榜单分歧', review: '待核汇总' } as Record<string, string>)[type] || type
+}
+function openArticle(id: number) {
+  sourceVisible.value = false
+  router.push(`/articles/${id}`)
+}
+function goReview() {
+  sourceVisible.value = false
+  router.push('/review')
 }
 
 watch(() => route.params.date, (value) => {

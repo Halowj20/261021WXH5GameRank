@@ -11,6 +11,8 @@ from apps.core.audit import log_action
 from apps.core.permissions import role_required
 from apps.digest.models import Digest, DigestItem
 from apps.digest.services import DigestLocked, generate_digest
+from apps.intel.api.review import summary as review_summary
+from apps.intel.models import Claim, Conflict, Observation, Snapshot
 
 
 def item_payload(item):
@@ -112,6 +114,103 @@ def finalize(request, date):
     digest.save(update_fields=["status", "editor", "updated_at"])
     log_action(request.user, "digest.finalize", digest, after={"status": digest.status})
     return ok(digest_payload(digest))
+
+
+@require_GET
+def item_source(request, item_id):
+    item = get_object_or_404(DigestItem.objects.select_related("digest"), id=item_id)
+    payload = {
+        "ref_type": item.ref_type,
+        "ref_id": item.ref_id,
+        "title": "",
+        "meta": [],
+        "articles": [],
+        "hint": "",
+    }
+    articles = []
+
+    def add_article(article):
+        if not article or any(existing["id"] == article.id for existing in articles):
+            return
+        articles.append(
+            {
+                "id": article.id,
+                "title": article.title,
+                "source": article.source.name if article.source else "",
+                "url": article.url or "",
+                "ingest_method": article.ingest_method,
+            }
+        )
+
+    if item.ref_type == DigestItem.RefType.SNAPSHOT:
+        if item.ref_id.isdigit():
+            snapshot = (
+                Snapshot.objects.filter(id=int(item.ref_id))
+                .prefetch_related("entries__game")
+                .first()
+            )
+        else:
+            snapshot = (
+                Snapshot.objects.filter(observed_date=item.ref_id)
+                .prefetch_related("entries__game")
+                .order_by("-authority_score", "-created_at")
+                .first()
+            )
+        if snapshot:
+            platform_label = {"wechat_mini": "微信小游戏", "douyin_mini": "抖音小游戏"}.get(
+                snapshot.platform, snapshot.platform
+            )
+            board_label = {"hot": "热门榜", "revenue": "畅销榜", "new": "新游榜"}.get(
+                snapshot.board_type, snapshot.board_type
+            )
+            payload["title"] = f"{platform_label} · {board_label} · {snapshot.observed_date}"
+            payload["meta"] = [
+                "官方原始榜单" if snapshot.status == Snapshot.Status.CONFIRMED else "暂定，未经官方核对",
+                f"共 {snapshot.entries.count()} 条",
+            ]
+            observation_ids = []
+            for entry in snapshot.entries.all():
+                observation_ids.extend(entry.evidence_observation_ids or [])
+            observations = (
+                Observation.objects.filter(id__in=observation_ids)
+                .select_related("article__source")
+                .order_by("article_id")
+            )
+            for observation in observations:
+                add_article(observation.article)
+    elif item.ref_type == DigestItem.RefType.CLAIM:
+        claim = (
+            Claim.objects.filter(id=item.ref_id)
+            .select_related("article__source")
+            .first()
+            if str(item.ref_id).isdigit()
+            else None
+        )
+        if claim:
+            payload["title"] = claim.claim_text
+            payload["meta"] = [
+                f"倾向：{claim.get_stance_display()}",
+                "观点已核实" if claim.verify_status == "confirmed" else "观点待核实",
+            ]
+            add_article(claim.article)
+    elif item.ref_type == DigestItem.RefType.CONFLICT:
+        conflict = Conflict.objects.filter(id=item.ref_id).select_related("article__source").first() if str(item.ref_id).isdigit() else None
+        if conflict:
+            payload["title"] = f"官方第 {conflict.official_rank} 名 / 转述第 {conflict.citation_rank} 名"
+            payload["meta"] = [conflict.get_status_display()]
+            add_article(conflict.article)
+    elif item.ref_type == DigestItem.RefType.REVIEW:
+        pending = review_summary()
+        payload["title"] = "待核队列汇总"
+        payload["meta"] = [
+            f"游戏映射 {pending['mapping']}",
+            f"品类待补 {pending['category']}",
+            f"观点待核 {pending['claims']}",
+            f"解析异常 {pending['errors']}",
+        ]
+        payload["hint"] = "前往待核队列查看具体条目"
+    payload["articles"] = articles
+    return ok(payload)
 
 
 @require_GET
