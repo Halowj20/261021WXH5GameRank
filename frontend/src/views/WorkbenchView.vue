@@ -97,8 +97,11 @@
         <el-table-column label="时间" width="160">
           <template #default="{ row }">{{ formatTime(row.time) }}</template>
         </el-table-column>
-        <el-table-column label="" width="80">
-          <template #default="{ row }"><el-button link @click="$router.push(`/articles/${row.id}`)">查看</el-button></template>
+        <el-table-column label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link @click="$router.push(`/articles/${row.id}`)">查看</el-button>
+            <el-button v-if="canWrite" link type="danger" @click="removeArticle(row)">删除</el-button>
+          </template>
         </el-table-column>
       </el-table>
     </section>
@@ -108,6 +111,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
 import { session } from '../stores/session'
 
@@ -136,6 +140,25 @@ const greeting = computed(() => {
 
 async function load() {
   data.value = await api<Workbench>('/api/workbench')
+}
+
+async function removeArticle(row: { id: number; title: string }) {
+  try {
+    await ElMessageBox.confirm(
+      `删除投喂记录「${row.title}」？该文章的观测与观点会一并删除，相关榜单快照将自动重算。`,
+      '确认删除',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await api(`/api/articles/${row.id}/delete`, { method: 'DELETE' })
+    ElMessage.success('投喂记录已删除')
+    await load()
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '删除失败')
+  }
 }
 
 function platformLabel(value: string) {

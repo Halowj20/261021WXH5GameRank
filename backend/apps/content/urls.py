@@ -8,4 +8,5 @@ urlpatterns = [
     path("sources/<int:source_id>", api.update_source),
     path("articles", api.list_articles),
     path("articles/<int:article_id>", api.article_detail),
+    path("articles/<int:article_id>/delete", api.delete_article),
 ]

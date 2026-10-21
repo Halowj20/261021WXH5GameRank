@@ -13,6 +13,11 @@ class ContentApiTest(TestCase):
         self.admin.profile.role = UserProfile.Role.ADMIN
         self.admin.profile.save()
         self.operator = get_user_model().objects.create_user(username="op", password="op12345")
+        self.operator.profile.role = UserProfile.Role.OPERATOR
+        self.operator.profile.save()
+        self.lead = get_user_model().objects.create_user(username="lead", password="lead123")
+        self.lead.profile.role = UserProfile.Role.LEAD
+        self.lead.profile.save()
         self.source = Source.objects.create(name="游戏葡萄", platforms=["wechat_mini"], weight=5)
         self.article = Article.objects.create(
             title="示例文章", url="https://example.com/a", source=self.source,
@@ -53,3 +58,15 @@ class ContentApiTest(TestCase):
         response = self.client.get("/api/articles")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["data"]), 1)
+
+    def test_operator_can_delete_article(self):
+        self.client.force_login(self.operator)
+        response = self.client.delete(f"/api/articles/{self.article.id}/delete")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Article.objects.filter(id=self.article.id).exists())
+
+    def test_lead_cannot_delete_article(self):
+        self.client.force_login(self.lead)
+        response = self.client.delete(f"/api/articles/{self.article.id}/delete")
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Article.objects.filter(id=self.article.id).exists())

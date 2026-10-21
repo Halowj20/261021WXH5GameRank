@@ -127,3 +127,25 @@ def list_articles(request):
 def article_detail(request, article_id):
     article = get_object_or_404(Article.objects.select_related("source"), id=article_id)
     return ok(article_payload(article, detail=True))
+
+
+@role_required("operator", "admin")
+@require_http_methods(["DELETE"])
+def delete_article(request, article_id):
+    from apps.intel.services.merge import merge_day
+
+    article = get_object_or_404(Article.objects.select_related("source"), id=article_id)
+    affected = set(
+        article.observations.values_list("platform", "board_type", "observed_date")
+    )
+    title = article.title
+    for asset in article.assets.all():
+        if asset.file:
+            try:
+                asset.file.delete(save=False)
+            except OSError:
+                pass
+    article.delete()
+    for platform, board, observed_date in affected:
+        merge_day(platform, board, observed_date)
+    return ok({"deleted": article_id, "title": title})
